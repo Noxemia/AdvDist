@@ -12,7 +12,7 @@ public class ExampleCaster extends Multicaster {
      * No initializations needed for this simple one
      */
     public void init() {
-        mcui.debug("The network has "+hosts+" hosts!");
+        mcui.debug("The network has "+hosts+" hosts and you are node "+id+"!");
     }
         
     /**
