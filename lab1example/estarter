@@ -1,1 +1,1 @@
-java mcgui.Main ExampleCaster $1 localhostsetup
+java mcgui.Main Caster $1 localhostsetup
