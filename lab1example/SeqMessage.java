@@ -9,31 +9,17 @@ import mcgui.*;
  * @author Andreas Larsson &lt;larandr@chalmers.se&gt;
  */
 public class SeqMessage extends Message {
-        
+
     String text;
-    int sequenceNumber;
-    Boolean sequenceMsg;
-        
+    Boolean tokenMessage;
+    int tokenSeq;
+
     // when sending the final message
-    public SeqMessage(int sender,String text, int sequence) {
+    public SeqMessage(int sender, String text, Boolean tokenMessage, int tokenSeq) {
         super(sender);
         this.text = text;
-        this.sequenceNumber = sequence;
-        this.sequenceMsg = false;
-    }
-    
-    // when requesting a sequence number
-    public SeqMessage(int sender) {
-        super(sender);
-        this.sequenceNumber = 0;
-        this.sequenceMsg = true;
-    }
-
-    // when responding with a sequence number
-    public SeqMessage(int sender, int sequence) {
-        super(sender);
-        this.sequenceNumber = sequence;
-        this.sequenceMsg = true;
+        this.tokenMessage = tokenMessage;
+        this.tokenSeq = tokenSeq;
     }
 
     /**
@@ -45,13 +31,9 @@ public class SeqMessage extends Message {
         return text;
     }
 
-    public int getSeq(){
-        return sequenceNumber;
+    public int getSeq() {
+        return tokenSeq;
     }
 
-    public boolean getSeqMsg(){
-        return sequenceMsg;
-    }
-    
     public static final long serialVersionUID = 0;
 }

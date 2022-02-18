@@ -10,30 +10,80 @@ import mcgui.*;
  */
 public class Caster extends Multicaster {
 
-    // for the sequencer to keep track
-    int sequenceCounter = 1;
-    // tracking sequences
-    int sequenceTracker = 0;
-    int sequencer = 0;
-
-    LinkedList<String> messageQueue = new LinkedList<>();
+    boolean hasToken = false;
+    int tokenSeq = 0;
+    int latestPushedSeq = 0;
+    int nextHost;
 
     /**
+     * sequencer
      * No initializations needed for this simple one
      */
     public void init() {
         mcui.debug("The network has " + hosts + " hosts and you are node " + id + "!");
+        if (id == 0) {
+            hasToken = true;
+            bcom.basicsend(0, new SeqMessage(id, "", true, 1));
+        }
+        nextHost = id + 1;
+        if (nextHost == hosts) {
+            nextHost = 0;
+        }
+
     }
+
+    LinkedList<String> messageQueue = new LinkedList<>();
 
     /**
      * The GUI calls this module to multicast a message
      */
     public void cast(String messagetext) {
-        // enqueue message
         messageQueue.add(messagetext);
-        // Send seqnumber request to node 1
-        bcom.basicsend(sequencer, new SeqMessage(id));
-        mcui.debug("Enqueded: \"" + messagetext + "\"" + "Asked for sequence number");
+    }
+
+    public void send() {
+        String message = messageQueue.pop();
+        for (int i = 0; i < hosts; i++) {
+            /* Sends to everyone except itself */
+            if (i != id) {
+                bcom.basicsend(i, new SeqMessage(id, message, false, tokenSeq));
+            }
+        }
+
+        deliver(new SeqMessage(id, message, false, tokenSeq));
+    }
+
+    LinkedList<SeqMessage> messageStore = new LinkedList<>();
+
+    public void deliver(SeqMessage message) {
+        if (message.getSeq() == latestPushedSeq + 1) {
+            latestPushedSeq++;
+            mcui.debug("Pushed message with sequence: " + message.getSeq());
+            mcui.deliver(message.getSender(), message.getText(), message.getSeq() + "");
+            pushStore();
+        } else {
+            mcui.debug("Inconsitent sequence, pushed to store " + message.getSeq());
+            messageStore.add(message);
+        }
+    }
+
+    public void pushStore() {
+        int searchSeq = this.latestPushedSeq + 1;
+        boolean found = false;
+        for (int i = 0; i < messageStore.size(); i++) {
+            if (messageStore.get(i).getSeq() == searchSeq) {
+                mcui.deliver(messageStore.get(i).getSender(), messageStore.get(i).text,
+                        messageStore.get(i).getSeq() + "");
+                mcui.debug("Pushed message from store with seq: " + messageStore.get(i).getSeq());
+                this.latestPushedSeq++;
+                messageStore.remove(i);
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            pushStore();
+        }
     }
 
     /**
@@ -43,74 +93,21 @@ public class Caster extends Multicaster {
      */
     public void basicreceive(int peer, Message message) {
         SeqMessage incMessage = (SeqMessage) message;
-        if (incMessage.getSeqMsg() && incMessage.getSeq() == 0) {
-            mcui.debug("Got request for seq number");
-            SeqRespond(incMessage.getSender());
-        } else if (incMessage.getSeqMsg()) {
-            mcui.debug("Got sequence number");
-            send(incMessage.getSeq());
+
+        if (incMessage.tokenMessage) {
+            if (messageQueue.size() != 0) {
+                tokenSeq = incMessage.tokenSeq;
+                send();
+                bcom.basicsend(nextHost, new SeqMessage(id, "", true, ++tokenSeq));
+            } else {
+                tokenSeq = incMessage.tokenSeq;
+
+                bcom.basicsend(nextHost, new SeqMessage(id, "", true, tokenSeq));
+            }
+
         } else {
-            deliver(peer, incMessage);
+            deliver(incMessage);
         }
-    }
-
-    /**
-     * Responds with a sequence number to the correct node
-     * 
-     * @param id
-     */
-    public void SeqRespond(int id) {
-        mcui.debug("Sent back sequence number");
-        bcom.basicsend(id, new SeqMessage(id, this.sequenceCounter++));
-    }
-
-    /**
-     * When sequence number has been received from the sequencer we broadcast them
-     * to everyone except ourselves
-     * in th correct message format
-     * 
-     * @param sequence
-     */
-    public void send(int sequence) {
-        String messagetext = this.messageQueue.pop();
-        for (int i = 0; i < hosts; i++) {
-            /* Sends to everyone except itself */
-            if (i != id) {
-                bcom.basicsend(i, new SeqMessage(id, messagetext, sequence));
-            }
-        }
-        deliver(id, new SeqMessage(id, messagetext, sequence));
-        mcui.debug("Sent out \"" + messagetext + "\" with sequence " + sequence);
-    }
-
-    LinkedList<SeqMessage> messageStore = new LinkedList<>();
-
-    public void deliver(int peer, SeqMessage incMessage){
-        if(this.sequenceTracker + 1 == incMessage.getSeq()){
-            mcui.deliver(peer, incMessage.getText(), incMessage.getSeq() + "");
-            mcui.debug("printed message with sequence " + incMessage.getSeq());
-            this.sequenceTracker = incMessage.getSeq();
-            pushStore();
-        }else{
-            messageStore.add(incMessage);
-            mcui.debug("Inconsistency detected, enqueed message with sequence " + incMessage.getSeq());
-        }
-    }
-
-    public void pushStore(){
-        int searchSeq = this.sequenceTracker +1;
-        boolean found = false;
-        for (int i = 0; i < messageStore.size(); i++){
-            if(messageStore.get(i).getSeq() == searchSeq){
-                mcui.deliver(messageStore.get(i).getSender(), messageStore.get(i).text, messageStore.get(i).getSeq() + "");
-                mcui.debug("Pushed message from store with seq: " + messageStore.get(i).getSeq());
-                this.sequenceTracker++;
-                messageStore.remove(i);
-                found = true;
-                break;
-            }
-        }
-        if(found){pushStore();}
     }
 
     /**
@@ -122,5 +119,12 @@ public class Caster extends Multicaster {
      */
     public void basicpeerdown(int peer) {
         mcui.debug("Peer " + peer + " has been dead for a while now!");
+        // If the node is the next host in the token ring
+        if (peer == nextHost) {
+            nextHost = (nextHost + 1) % hosts;
+            bcom.basicsend(nextHost, new SeqMessage(id, "", true, tokenSeq));
+            mcui.debug("new next host is: " + nextHost);
+        }
+
     }
 }
